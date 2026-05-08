@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+
+name = "lblStatistic"
+dynamic = ["version"]
+description = "A Python package for statistical analysis of labeled data."
+readme = "README.md"
+requires-python = ">=3.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+dependencies = [
+    "typing_extensions", "lblConvert>=1.0.0", "matplotlib", "prettytable", "seaborn", "xlsxwriter",
+    "pandas"
+]
+
+
+[tool.setuptools.dynamic]
+version = { attr = "lblStatistic.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lblStatistic*"]
