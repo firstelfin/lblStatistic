@@ -535,28 +535,6 @@ class StatisticConfusion(StatisticBase):
                 else:
                     self.matrix.matrix_precision[key_index, :] += value  # 更新matrix_precision某一行
 
-    def update_img_wise_pr(self, update_dict: dict) -> str:
-        # TODO: 添加图像级别的指标到库
-        tp_names = set()
-        if update_dict["tpg"] or update_dict["tpp"]:
-            for shape in update_dict["tpg"] + update_dict["tpp"]:
-                tp_names.add(shape["label"])
-            for name in tp_names:
-                name_idx = self.matrix.category.index(name)
-                self.matrix.imgwise_pr_recall[name_idx] += 1
-            return "TP"
-        
-        fp_names = set()
-        if update_dict["fp"]:
-            for shape in update_dict["fp"]:
-                fp_names.add(shape["label"])
-            for name in fp_names:
-                name_inx = self.matrix.category.index(name)
-                self.matrix.imgwise_pr_precision[name_inx] += 1
-            return "FP"
-
-        return ""
-
     def save_fpfn_pipeline(self, match_object: dict, gt_file: str, img_shape: tuple):
         """保存FP, FN实例为子数据集, 标签使用labelme格式
         :param match_object: 匹配结果
@@ -641,19 +619,7 @@ class StatisticConfusion(StatisticBase):
         # 更新统计实验数据
         self.update(match_object['updateItemsRecall'], recall=True)
         self.update(match_object['updateItemsPrecision'], recall=False)
-        img_wise_str = self.update_img_wise_pr(match_object['boxesStatus'])
-        if img_wise_str == "TP":
-            self.matrix.total_tp_img_num += 1
-        elif img_wise_str == "FP":
-            self.matrix.total_fp_img_num += 1
-        gt_names = set()
-        for shape in gt_entities["shapes"]:
-            gt_names.add(shape["label"])
-        for gt_name in gt_names:
-            gt_name_idx = self.matrix.category.index(gt_name)
-            self.matrix.imgwise_gt_num[gt_name_idx] += 1
-        if gt_entities["shapes"]:
-            self.matrix.total_gt_img_num += 1
+        self.matrix.update_img_wise_pr(match_object['boxesStatus'])
 
         # 判断是否需要对Difficult实例进行单独处理
         if self.difficult_filter:

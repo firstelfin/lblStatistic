@@ -10,7 +10,6 @@
 
 import math
 import warnings
-warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -21,6 +20,7 @@ from loguru import logger
 from pathlib import Path
 from xlsxwriter.utility import xl_col_to_name
 from lblStatistic.utils import set_plt, PathStr
+warnings.filterwarnings('ignore')
 
 
 def array2picture(
@@ -204,29 +204,19 @@ class ConfusionMatrix:
         self.exclude_zero = exclude_zero
         self.filter_category = np.array([False if filter_c in filter_category else True for filter_c in category])
         self.difficult_filter = difficult_filter
-        self.imgwise_pr_recall = [0] * (self.num_classes - 1) + [1e-6]
-        self.imgwise_pr_precision = [0] * (self.num_classes - 1) + [1e-6]
-        self.imgwise_gt_num = [0] * (self.num_classes - 1) + [1e-6]
+        self.imgwise_pr_recall = [0] * self.num_classes      # 召回图像数量｜比率记录
+        self.imgwise_pr_precision = [0] * self.num_classes   # 图像误报｜精确, 数量｜比率记录
+        self.imgwise_gt_num = [0] * self.num_classes         # 图像GT数量记录
         self.total_img_num = 0
-        self.total_tp_img_num = 0  # 计算所有类别图像级别的召回
-        self.total_fp_img_num = 0  # 计算所有类别图像级别的精度
-        self.total_gt_img_num = 0  # 计算所有类别图像级别的GT数量
 
     @classmethod
     def set_plt(cls, font_path = None):
         set_plt(font_path=font_path)
 
     def get_img_wise_eval(self):
-        self.img_wise_total_recall = self.total_tp_img_num / max(self.total_gt_img_num, 1)
-        self.img_wise_total_precision = self.total_tp_img_num / max(self.total_fp_img_num+self.total_tp_img_num, 1)
-        self.img_wise_total_accuracy = max(self.total_img_num - self.total_fp_img_num, 0) / max(self.total_img_num, 1)
         self.img_wise_pr_recall = [self.imgwise_pr_recall[i] / max(self.imgwise_gt_num[i], 1) for i in range(self.num_classes)]
-        self.img_wise_pr_precision = [self.imgwise_pr_recall[i] / max(self.imgwise_pr_precision[i]+self.imgwise_pr_recall[i], 1) for i in range(self.num_classes)]
+        self.img_wise_pr_precision = [self.imgwise_pr_precision[i] / max(self.imgwise_pr_precision[i]+self.imgwise_pr_recall[i], 1) for i in range(self.num_classes)]
         self.img_wise_pr_accuracy = [max(self.total_img_num - self.imgwise_pr_precision[i], 0) / max(self.total_img_num, 1) for i in range(self.num_classes)]
-        self.img_wise_pr_recall += [self.img_wise_total_recall]
-        self.img_wise_pr_precision += [self.img_wise_total_precision]
-        self.img_wise_pr_accuracy += [self.img_wise_total_accuracy]
-        self.img_wise_gt_num = self.imgwise_gt_num + [self.total_gt_img_num]
     
     def update_difficult_fn(self, shapes):
         for shape in shapes:
@@ -235,7 +225,54 @@ class ConfusionMatrix:
     def update_difficult_tp(self, shapes):
         for shape in shapes:
             self.difficult_tp[self.category.index(shape["label"])] += 1
-    
+
+    def update_img_wise_pr(self, update_dict: dict) -> str:
+        """根据match的匹配结果, 统计每个类别图像级别的FP, TP, GT
+
+        :param dict update_dict: _description_
+        :return str: 整个图像级别的匹配状态, 包含TP, FP, ""(非缺陷)
+        """
+
+        # 统计GT数量
+        gt_names = set()
+        for shape in (update_dict["tpg"] + update_dict["fnDiff"] + update_dict["fn"]):
+            gt_names.add(shape["label"])
+        for name in gt_names:
+            name_idx = self.category.index(name)
+            self.imgwise_gt_num[name_idx] += 1
+        if len(gt_names):
+            self.total_gt_img_num += 1
+            self.imgwise_gt_num[-1] += 1
+
+        # 先统计TP数据
+        tp_names = set()
+        for shape in (update_dict["tpg"] + update_dict["tpp"] + update_dict["tpDiff"]):
+            tp_names.add(shape["label"])
+        for name in tp_names:
+            name_idx = self.category.index(name)
+            self.imgwise_pr_recall[name_idx] += 1
+        
+        # 再统计FP数据, 排除TP数据
+        fp_names = set()
+        for shape in update_dict["fp"]:
+            if shape["label"] in tp_names:
+                continue
+            fp_names.add(shape["label"])
+        for name in fp_names:
+            name_inx = self.category.index(name)
+            self.imgwise_pr_precision[name_inx] += 1
+        
+        # 统计整个图像级别的数量
+        res_status = ""
+        if len(tp_names):
+            res_status = "TP"
+            self.imgwise_pr_recall[-1] += 1
+        elif len(fp_names):
+            res_status = "FP"
+            self.imgwise_pr_precision[-1] += 1
+
+        return res_status
+
     def add_matrix_item(self, i: int, j: int, value: int, recall: bool = True):
         if recall:
             self.matrix_recall[i][j] += value
@@ -342,39 +379,57 @@ class ConfusionMatrix:
 
         # 根据filter过滤无关类别(类别变少了)
         rp = np.stack([
-            gt_num, recall, pred_num, precision,
-            self.img_wise_pr_recall[:-1], self.img_wise_gt_num[:-1], self.img_wise_pr_precision[:-1], self.img_wise_pr_accuracy[:-1]]
+            recall_num, gt_num, recall,              # 召回数量、GT数量、召回率
+            precision_num, pred_num, precision,      # 精确数量、预测数量、精确率
+            self.imgwise_pr_recall[:-1], self.imgwise_gt_num[:-1], self.img_wise_pr_recall[:-1],   # 图像级别召回数量、GT数量、召回率
+            self.imgwise_pr_precision[:-1], self.img_wise_pr_precision[:-1], self.img_wise_pr_accuracy[:-1]]   # 图像级别误报数量、精确率、准确率
             , axis=1)
+
+        if self.difficult_filter:   # 添加difficult计数
+            rp = np.hstack([rp, difficult_num[:, None], fn_difficult_num[:, None], tp_difficult_num[:, None]])
 
         # 整体召回精度计算需要排除background, 默认索引为-1
         gt_total_num = gt_num[:-1].sum()
         pred_total_num = pred_num[:-1].sum()
+        recall_total_num = recall_num[:-1].sum()
+        precision_total_num = precision_num[:-1].sum()
         total_recall = (np.sum(recall_num[:-1]) + eps) / (gt_total_num + eps)
         total_precision = (np.sum(precision_num[:-1]) + eps) / (pred_total_num + eps)
-        if self.difficult_filter:
-            rp = np.hstack([rp, difficult_num[:, None], fn_difficult_num[:, None], tp_difficult_num[:, None]])
         difficult_extend = [""] * 3 if self.difficult_filter else []
-        rp = np.vstack([
-            rp,
-            [
-                gt_total_num, np.round(total_recall, 8), pred_total_num, np.round(total_precision, 8),
-                self.img_wise_pr_recall[-1], self.img_wise_gt_num[-1], self.img_wise_pr_precision[-1], self.img_wise_pr_accuracy[-1]
-            ] + difficult_extend
-        ])
+        # 添加总计行
+        total_new_row = [
+            recall_total_num, gt_total_num, total_recall,
+            precision_total_num, pred_total_num, total_precision,
+            self.imgwise_pr_recall[-1], self.imgwise_gt_num[-1], self.img_wise_pr_recall[-1],              # 图像级别召回数量、GT数量、召回率
+            self.imgwise_pr_precision[-1], self.img_wise_pr_precision[-1], self.img_wise_pr_accuracy[-1]   # 图像级别误报数量、精确率、准确率
+        ]+ difficult_extend
+        rp = np.vstack([rp, total_new_row])
+        rp[:, 8, 10, 11] = np.round(rp[:, 8, 10, 11], decimals=6)
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
             index_array = np.bitwise_or(gt_num[:-1] != 0, pred_num[:-1] != 0)
         else:
             index_array = np.ones_like(recall[:-1], dtype=bool)
-        
+
+        # 计算平均值
         mr = np.round(np.mean(recall[:-1][index_array]), decimals=8)
         mp = np.round(np.mean(precision[:-1][index_array]), decimals=8)
-        
-        rp = np.vstack([rp, ["-", mr, "-", mp, "-", "-", "-", "-"] + difficult_extend])
+        category_img_man_recall = np.round(np.mean(self.img_wise_pr_recall[:-1][index_array]), decimals=6)
+        category_img_man_precision = np.round(np.mean(self.img_wise_pr_precision[:-1][index_array]), decimals=6)
+        category_img_man_acc = np.round(np.mean(self.img_wise_pr_accuracy[:-1][index_array]), decimals=6)
+        mean_new_row = [
+            "-", "-", mr, "-", "-", mp,
+            "-", "-", category_img_man_recall,
+            "-", category_img_man_precision, category_img_man_acc
+        ] + difficult_extend
+        rp = np.vstack([rp, mean_new_row])
         
         _rp_index = [self.category[i] for i in range(len(self.category)) if self.filter_category[i]] + ["Total", "Mean"]
-        _rp_columns = ["GtNum", "Recall", "PredNum", "Precision", "ImgRecall", "ImgGt", "ImgPrecision", "ImgAccuracy"]
+        _rp_columns = [
+            "召回量", "标注量", "召回率", "正确预测量", "预测量", "精度",
+            "Img召回量", "Img标注量", "Img召回率", "Img误报量", "Img精确率", "Img准确率"
+        ]
         if self.difficult_filter:
             _rp_columns += ["DifficultNum", "DifficultFN", "DifficultTP"]
         df_rp = pd.DataFrame(rp, columns=_rp_columns, index=_rp_index)
@@ -475,7 +530,6 @@ class ConfusionMatrix:
                 merge_end_cell = f"{xl_col_to_name(start_col+rp.shape[1])}{start_row+rp.shape[0]+1}"
                 merge_cell_range = f"{merge_start_cell}:{merge_end_cell}"
                 worksheet_rp.merge_range(merge_cell_range, difficult_statistic, summary_format)  # type: ignore
-
 
     def get_normalize_matrix(self):
         """获取归一化的混淆矩阵"""

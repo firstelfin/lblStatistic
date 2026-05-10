@@ -14,5 +14,6 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 
 from lblStatistic.statistic import StatisticMatrix, StatisticConfusion
+from lblConvert.tools.lblTools import FutureBar
 
-__version__ = '1.0.0-alpha'
+__version__ = '1.0.0'
