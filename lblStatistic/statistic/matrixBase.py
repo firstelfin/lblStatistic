@@ -233,6 +233,8 @@ class ConfusionMatrix:
         :return str: 整个图像级别的匹配状态, 包含TP, FP, ""(非缺陷)
         """
 
+        self.total_img_num += 1
+
         # 统计GT数量
         gt_names = set()
         for shape in (update_dict["tpg"] + update_dict["fnDiff"] + update_dict["fn"]):
@@ -241,7 +243,6 @@ class ConfusionMatrix:
             name_idx = self.category.index(name)
             self.imgwise_gt_num[name_idx] += 1
         if len(gt_names):
-            self.total_gt_img_num += 1
             self.imgwise_gt_num[-1] += 1
 
         # 先统计TP数据
@@ -381,8 +382,8 @@ class ConfusionMatrix:
         rp = np.stack([
             recall_num, gt_num, recall,              # 召回数量、GT数量、召回率
             precision_num, pred_num, precision,      # 精确数量、预测数量、精确率
-            self.imgwise_pr_recall[:-1], self.imgwise_gt_num[:-1], self.img_wise_pr_recall[:-1],   # 图像级别召回数量、GT数量、召回率
-            self.imgwise_pr_precision[:-1], self.img_wise_pr_precision[:-1], self.img_wise_pr_accuracy[:-1]]   # 图像级别误报数量、精确率、准确率
+            self.imgwise_pr_recall, self.imgwise_gt_num, self.img_wise_pr_recall,   # 图像级别召回数量、GT数量、召回率
+            self.imgwise_pr_precision, self.img_wise_pr_precision, self.img_wise_pr_accuracy]   # 图像级别误报数量、精确率、准确率
             , axis=1)
 
         if self.difficult_filter:   # 添加difficult计数
@@ -395,6 +396,8 @@ class ConfusionMatrix:
         precision_total_num = precision_num[:-1].sum()
         total_recall = (np.sum(recall_num[:-1]) + eps) / (gt_total_num + eps)
         total_precision = (np.sum(precision_num[:-1]) + eps) / (pred_total_num + eps)
+        total_recall = np.round(total_recall, decimals=8)
+        total_precision = np.round(total_precision, decimals=8)
         difficult_extend = [""] * 3 if self.difficult_filter else []
         # 添加总计行
         total_new_row = [
@@ -404,7 +407,9 @@ class ConfusionMatrix:
             self.imgwise_pr_precision[-1], self.img_wise_pr_precision[-1], self.img_wise_pr_accuracy[-1]   # 图像级别误报数量、精确率、准确率
         ]+ difficult_extend
         rp = np.vstack([rp, total_new_row])
-        rp[:, 8, 10, 11] = np.round(rp[:, 8, 10, 11], decimals=6)
+        rp[:, [8, 10, 11]] = np.round(rp[:, [8, 10, 11]].astype(float), decimals=8)
+        rp[-2, 0], rp[-2, 3] = "FN", "FP"
+        rp[-2, 6:12] = ["FN", self.imgwise_gt_num[-1] - self.imgwise_pr_recall[-1], "-", self.imgwise_pr_precision[-1], "-", "-"]
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
@@ -415,9 +420,9 @@ class ConfusionMatrix:
         # 计算平均值
         mr = np.round(np.mean(recall[:-1][index_array]), decimals=8)
         mp = np.round(np.mean(precision[:-1][index_array]), decimals=8)
-        category_img_man_recall = np.round(np.mean(self.img_wise_pr_recall[:-1][index_array]), decimals=6)
-        category_img_man_precision = np.round(np.mean(self.img_wise_pr_precision[:-1][index_array]), decimals=6)
-        category_img_man_acc = np.round(np.mean(self.img_wise_pr_accuracy[:-1][index_array]), decimals=6)
+        category_img_man_recall = np.round(np.mean(np.array(self.img_wise_pr_recall[:-1])[index_array]), decimals=8)
+        category_img_man_precision = np.round(np.mean(np.array(self.img_wise_pr_precision[:-1])[index_array]), decimals=8)
+        category_img_man_acc = np.round(np.mean(np.array(self.img_wise_pr_accuracy[:-1])[index_array]), decimals=8)
         mean_new_row = [
             "-", "-", mr, "-", "-", mp,
             "-", "-", category_img_man_recall,
@@ -512,7 +517,7 @@ class ConfusionMatrix:
             for idx, col in enumerate(df_rp):  # Iterate through data to auto fit
                 series = df_rp[col]
                 max_len = max((
-                    series.astype(str).map(len).max(),  # len of largest item
+                    series.astype(str).map(len).max(), 10, # len of largest item
                     self.config_column_width(str(series.name))  # len of column name/header
                 )) + 1  # adding a little extra space
                 worksheet_rp.set_column(idx + 1 + start_col, idx + 1 + start_col, max_len)  # set column width
@@ -524,9 +529,9 @@ class ConfusionMatrix:
             if self.difficult_filter:
                 total_fn_difficult_num = fn_difficult_num.sum()
                 total_gt_num = total_fn_difficult_num + gt_total_num
-                difficult_statistic = f"总计GT实例{total_gt_num}个, 上报实例{pred_total_num}个\n" + \
+                difficult_statistic = f"总计图像{self.total_img_num}个, GT实例{total_gt_num}个, 上报实例{pred_total_num}个\n" + \
                     f"困难实例{difficult_num.sum()}个, 发现{tp_difficult_num.sum()}个, 遗漏{total_fn_difficult_num}个"
-                merge_start_cell = f"{xl_col_to_name(start_col+rp.shape[1]-2)}{start_row+rp.shape[0]-1}"  # 行编码从1开始,且表头和索引分别要占一行一列
+                merge_start_cell = f"{xl_col_to_name(start_col+rp.shape[1]-2)}{start_row+rp.shape[0]}"  # 行编码从1开始,且表头和索引分别要占一行一列
                 merge_end_cell = f"{xl_col_to_name(start_col+rp.shape[1])}{start_row+rp.shape[0]+1}"
                 merge_cell_range = f"{merge_start_cell}:{merge_end_cell}"
                 worksheet_rp.merge_range(merge_cell_range, difficult_statistic, summary_format)  # type: ignore

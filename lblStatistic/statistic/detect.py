@@ -638,7 +638,6 @@ class StatisticConfusion(StatisticBase):
         
         entities_generator = self.load_datasets()
         total_num = next(entities_generator)
-        self.matrix.total_img_num = total_num  # type: ignore 第一个返回值是int类型
 
         # future开启多线程, 不能使用多进程（代码没有考虑多进程的情况）
         future_bar = FutureBar(total=total_num, desc="StatisticConfusion", max_workers=kwargs.get('max_workers', None))
