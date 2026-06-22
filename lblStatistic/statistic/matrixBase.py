@@ -204,8 +204,9 @@ class ConfusionMatrix:
         self.exclude_zero = exclude_zero
         self.filter_category = np.array([False if filter_c in filter_category else True for filter_c in category])
         self.difficult_filter = difficult_filter
-        self.imgwise_pr_recall = [0] * self.num_classes      # 召回图像数量｜比率记录
-        self.imgwise_pr_precision = [0] * self.num_classes   # 图像误报｜精确, 数量｜比率记录
+        self.imgwise_pr_recall = [0] * self.num_classes      # 召回图像数量记录
+        self.imgwise_pr_fp = [0] * self.num_classes          # 图像误报数量记录
+        # self.imgwise_pr_precision = [0] * self.num_classes   # 图像精确, 数量记录
         self.imgwise_gt_num = [0] * self.num_classes         # 图像GT数量记录
         self.total_img_num = 0
 
@@ -215,8 +216,11 @@ class ConfusionMatrix:
 
     def get_img_wise_eval(self):
         self.img_wise_pr_recall = [self.imgwise_pr_recall[i] / max(self.imgwise_gt_num[i], 1) for i in range(self.num_classes)]
-        self.img_wise_pr_precision = [self.imgwise_pr_precision[i] / max(self.imgwise_pr_precision[i]+self.imgwise_pr_recall[i], 1) for i in range(self.num_classes)]
-        self.img_wise_pr_accuracy = [max(self.total_img_num - self.imgwise_pr_precision[i], 0) / max(self.total_img_num, 1) for i in range(self.num_classes)]
+        self.img_wise_pr_precision = [
+            self.imgwise_pr_recall[i] / max(self.imgwise_pr_fp[i]+self.imgwise_pr_recall[i], 1)
+            for i in range(self.num_classes)
+        ]
+        self.img_wise_pr_accuracy = [max(self.total_img_num - self.imgwise_pr_fp[i], 0) / max(self.total_img_num, 1) for i in range(self.num_classes)]
     
     def update_difficult_fn(self, shapes):
         for shape in shapes:
@@ -261,7 +265,7 @@ class ConfusionMatrix:
             fp_names.add(shape["label"])
         for name in fp_names:
             name_inx = self.category.index(name)
-            self.imgwise_pr_precision[name_inx] += 1
+            self.imgwise_pr_fp[name_inx] += 1
         
         # 统计整个图像级别的数量
         res_status = ""
@@ -270,7 +274,7 @@ class ConfusionMatrix:
             self.imgwise_pr_recall[-1] += 1
         elif len(fp_names):
             res_status = "FP"
-            self.imgwise_pr_precision[-1] += 1
+            self.imgwise_pr_fp[-1] += 1
 
         return res_status
 
@@ -383,7 +387,7 @@ class ConfusionMatrix:
             recall_num, gt_num, recall,              # 召回数量、GT数量、召回率
             precision_num, pred_num, precision,      # 精确数量、预测数量、精确率
             self.imgwise_pr_recall, self.imgwise_gt_num, self.img_wise_pr_recall,   # 图像级别召回数量、GT数量、召回率
-            self.imgwise_pr_precision, self.img_wise_pr_precision, self.img_wise_pr_accuracy]   # 图像级别误报数量、精确率、准确率
+            self.imgwise_pr_fp, self.img_wise_pr_precision, self.img_wise_pr_accuracy]   # 图像级别误报数量、精确率、准确率
             , axis=1)
 
         if self.difficult_filter:   # 添加difficult计数
@@ -404,12 +408,12 @@ class ConfusionMatrix:
             recall_total_num, gt_total_num, total_recall,
             precision_total_num, pred_total_num, total_precision,
             self.imgwise_pr_recall[-1], self.imgwise_gt_num[-1], self.img_wise_pr_recall[-1],              # 图像级别召回数量、GT数量、召回率
-            self.imgwise_pr_precision[-1], self.img_wise_pr_precision[-1], self.img_wise_pr_accuracy[-1]   # 图像级别误报数量、精确率、准确率
+            self.imgwise_pr_fp[-1], self.img_wise_pr_precision[-1], self.img_wise_pr_accuracy[-1]   # 图像级别误报数量、精确率、准确率
         ]+ difficult_extend
         rp = np.vstack([rp, total_new_row])
         rp[:, [8, 10, 11]] = np.round(rp[:, [8, 10, 11]].astype(float), decimals=8)
         rp[-2, 0], rp[-2, 3] = "FN", "FP"
-        rp[-2, 6:12] = ["FN", self.imgwise_gt_num[-1] - self.imgwise_pr_recall[-1], "-", self.imgwise_pr_precision[-1], "-", "-"]
+        rp[-2, 6:12] = ["FN", self.imgwise_gt_num[-1] - self.imgwise_pr_recall[-1], "-", self.imgwise_pr_fp[-1], "-", "-"]
 
         # 预测计数为0, GT计数为0的类别, 在exclude_zero模式下排除
         if self.exclude_zero:
