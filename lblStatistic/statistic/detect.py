@@ -420,12 +420,18 @@ class StatisticConfusion(StatisticBase):
         chinese (bool, optional): 是否使用中文类别, 可以指定中文字体文件的路径, defaults to True
         gt_suffix (str, optional): 标签文件后缀名, defaults to '.txt'.
         pred_suffix (str, optional): 推理结果文件后缀名, defaults to '.json'.
+        use_fpfn (bool, optional): 是否保存FPFN的图片, defaults to False.
+        conf (float, List[float]): 置信度阈值, defaults to 0.0.
+        ios_thresh (float, optional): IOS阈值, defaults to 0.5.
+        iou_thresh (float, optional): IOU阈值, defaults to 0.5.
+        filter_category (List[str], optional): 过滤类别, defaults to [].
+        difficult_filter (bool, optional): 是否过滤困难样本, defaults to True.
     
     注意: gt_suffix 和 pred_suffix 可以任选txt, json, xml格式, 但是若都使用YOLO格式, 则算法失效(不能得到像素坐标).
         
     Example:
         ```python
-        >>> statistic = StatisticBase(
+        >>> statistic = StatisticConfusion(
         ...     src_gt=['/data1/2024_datasets/infenrence/srcLabelTest-test/labels'],  # 标签文件路径
         ...     src_pred=[infer.dst_dir],  # 预测文件路径
         ...     dst_dir='/data1/2025_datasets/',  # 实验存放的根目录
@@ -433,11 +439,7 @@ class StatisticConfusion(StatisticBase):
         ...     use_ios=True,  # 是否使用IOS计算匹配程度
         ...     classes='/data1/classes.txt'  # 类别文件路径, YOLO格式
         ... )
-        >>> statistic(
-        ...     rendering=True,  # 是否渲染统计结果
-        ...     ios_thresh=0.5,
-        ...     iou_thresh=0.5
-        ... )
+        >>> statistic()
         ```
     """
 
@@ -446,8 +448,8 @@ class StatisticConfusion(StatisticBase):
             project: str = 'inference', use_ios: bool = True, 
             classes: Union[PathStr, List, Dict] = 'classes.txt', chinese: Union[bool, str] = True, 
             gt_suffix: Literal[".txt", ".json", ".xml"] = '.txt', 
-            pred_suffix: Literal[".txt", ".json", ".xml"] = '.json', 
-            use_fpfn: bool = False, conf: Union[float, List] = 0,
+            pred_suffix: Literal[".txt", ".json", ".xml"] = '.json',
+            use_fpfn: bool = False, conf: Union[float, List[float]] = 0,
             ios_thresh: float = 0.5, iou_thresh: float = 0.5, 
             filter_category: list = [], difficult_filter: bool = True, **kwargs
         ):
@@ -463,7 +465,7 @@ class StatisticConfusion(StatisticBase):
         :param Literal[".txt", ".json", ".xml"] gt_suffix: 标签文件后缀名, defaults to '.txt'
         :param Literal[".txt", ".json", ".xml"] pred_suffix: 推理结果文件后缀名, defaults to '.json'
         :param bool use_fpfn: 是否使用FP, FN保存为子数据集, defaults to False
-        :param float|list conf: 置信度阈值, 默认为0.001, 也可以传入一个列表, 对应每个类别的置信度阈值
+        :param float|list conf: 置信度阈值, 默认为0.0, 也可以传入一个列表, 对应每个类别的置信度阈值
         :param float ios_thresh: IOS阈值, defaults to 0.5
         :param float iou_thresh: IOU阈值, defaults to 0.5
         :param list filter_category: 过滤类别列表, defaults to []
